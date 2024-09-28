@@ -13,56 +13,89 @@ recommend installing ARM via the supported [Docker Container](https://github.com
 
 This is a step-by-step walkthrough adding ARM (Automatic Ripping Machine) to a TrueNAS Scale system as a custom app.
 
-**Note**: The following guide was performed on the Cobia version of TrueNAS Scale.
+**Note**: The following guide was performed on TrueNAS Scale Cobia (24.04).
 Prior versions of TrueNAS Scale have an issue with GPU Allocation, which Cobia fixes.
 
 
 1. Create a custom app via Apps → Discover Apps → Custom App 
 
-    Refer to TrueNAS documentation for additional information [Documentation Hub](https://www.truenas.com/docs/scale/24.04/scaletutorials/apps/usingcustomapp/)
+> [!TIP]
+> Refer to the TrueNAS Documentation for additional information:
+> 
+> [Documentation Hub](https://www.truenas.com/docs/scale/24.04/scaletutorials/apps/usingcustomapp/)
 
 2. Name the Application, e.g. `arm`, `autorip`, or any other arbitrary name.
 
 3. Set the *Image Repository* to `automaticrippingmachine/automatic-ripping-machine` and leave the *Image Tag* on `Latest`.
 
-4. Create a custom directory under the *Host Path Volumes* by pressing *Add*.
-    Configure the following directories:
+4. Managing Permissions
 
-    | Local Path                       | ARM Docker Directory |
+    The ARM container's internal user defaults to user ID (`uid`) `1000` and group ID (`gid`) `1000`. In most TrueNAS Scale installations, no user or group with this ID exists, and directory/file permissions are likely not including it. Therefore you will need to make sure the container user has read and write permissions in the paths you will be setting in Step 6.
+
+    You have 2 choices for this:
+    
+    - **Preferred**: In the **Container Environment Variables** section add the variables `ARM_UID` and `ARM_GID` and set both to `568`. This is TrueNAS' default `apps` user/group, which will most likely already have access to your directories and files.
+   - **Alternate**: Adjust the directory and file permissions to allow read/write access for user and group ID `1000`, either by `chown`ing the directories/files, or adding corresponding ACLs.
+
+5. (Optional) Enable access to the WebUI
+
+    In the **Port Forwarding** section click *Add* and map ports as follows:
+
+    | Container Port | Node Port     | Protocol
+    |----------------|---------------|--------------------
+    | `8080`         | `<your-port>` | `TCP Protocol`
+
+    Where `your-port` is the port the WebUI will be reachable at later. Make sure it does not conflict with a port of your other Apps.
+
+6. Add Storage paths
+
+    Under **Storage** you need to map the 5 directories listed below. Note the *Host Paths* need to be created ahead of time to show up in the *Host Path* selector. Where you put these is your choice, but specifically for the `media` and `music` volumes, a path on your storage pools is highly recommended. For a reference what each of these directories are used for, read our guide on [Understanding Docker Volumes for A.R.M.](https://github.com/automatic-ripping-machine/automatic-ripping-machine/wiki/docker#understanding-docker-volumes-for-arm).
+
+    Next to *Host Path Volumes* click *Add* and configure the following directories:
+
+    | Host Path                        | Mount Path           |
     |----------------------------------|----------------------|
     | `<path_to_arm_user_home_folder>` | `/home/arm`          |
     | `<path_to_music_folder>`         | `/home/arm/music`    |
     | `<path_to_logs_folder>`          | `/home/arm/logs`     |
     | `<path_to_media_folder>`         | `/home/arm/media`    |
     | `<path_to_config_folder>`        | `/etc/arm/config`    |
+    
+> [!IMPORTANT]  
+> Please make sure to ***not*** check any of the *Read Only* boxes.
+
+7. Access to your optical disc drive
+
+    # needs verification, see PR comments
+
+    In the **Workload Details** section under *Security Context*, enable the *Privileged Mode* checkbox.
    
+> [!WARNING]  
+> As of the current TrueNAS Scale Cobia release, there seems to be no way to pass only a single drive to a Docker container. This may change in Electric Eel with the replacement of the Kubernetes Engine in favor of Docker Compose.
+> 
+> That being said, running containers in [Privileged Mode comes with inherent security risks](https://docs.docker.com/security/faqs/containers/). If you are not comfortable with this, you may want to hold off for now and check back later after Electric Eel is released.
 
-5. (Optional) GPU Configuration.
+8. (Optional) GPU Configuration
+
    If you don’t have a compatible GPU or wish to keep your video files raw, you can skip this step as this is only required for transcoding.
-   Continue down to the **Resource Reservation** section and into the *GPU Configuration*
-   If you have a supported GPU, allocate at least a single one of the GPUs to enable the NVENC (Geforce) or other encodings, it will show you multiple GPUs that you can allocate, choose at least one.
-      - For NVIDIA GPUs, not only do you need to allocate your GPU, but you must also add a pair of variables in the **Container Environment Variables** section:
-        - name: `NVIDIA_VISIBLE_DEVICES` value: `all`
-        - name: `NVIDIA_DRIVER_CAPABILITIES` value: `all`
+   
+   If you do, continue down to the **Resource Reservation** section. Under *GPU Configuration* allocate at least a single one of the compatible GPUs to enable the NVENC, . It will show you multiple GPUs that you can allocate, choose at least one.
 
-6. (Optional) Enable Web Portal. Not a necessary step, but this will create a button on the ARM app in TrueNAS Scale
-to allow quick access to the ARM Web GUI.
-Web Portal access requires enabling of port forwarding. Under *Enable WebUI Portal* configure port forwarding
+> [!IMPORTANT]  
+> For NVIDIA GPUs, not only do you need to allocate your GPU, but you must also add a pair of variables in the **Container Environment Variables** section:
+> - Name: `NVIDIA_VISIBLE_DEVICES` Value: `all`
+> - Name: `NVIDIA_DRIVER_CAPABILITIES` Value: `all`
 
-    | Container Port | Node Port          |
-    |----------------|--------------------|
-    | 8080           | `<port-of-choice>` |
+9. (Optional) Enable Web Portal.
 
-7. The ARM container's internal user has User ID `uid 1000` and Group ID `gid 1000`.
-You will need to make sure the container has read and write permissions in the paths set in Step 4.
-You have 2 choices for this:
-   - **Preferred**: In the **Container Environment Variables** section add the variables `ARM_UID` and `ARM_GID`
-   and set both to `568` (TrueNAS' default `apps` user/group). 
-   - **Alternate**: Adjust the directory and file permissions to allow read/write access for user and group ID `1000`, either by `chown`ing the directories/files, or adding corresponding ACLs.
+   This will create a button in the ARM apps **Application Info** to allow quick access to the ARM Web GUI.
 
-8. Click the *Install* button at the bottom and wait for it to complete.
+   Check the *Enable WebUI Portal* checkbox, then for the *Port* enter `<your-port>` you set up in step 5.
+
+10. Click the *Install* button at the bottom and wait for it to complete.
 
 If everything was done properly, ARM should now work.
+
 Head into the WebGUI either using the Webportal button on the ARM app if you made one or using the `ip:port` in the browser to check if ARM is working.
 
 There you go. Any other TrueNAS Scale users can update or correct as needed.
